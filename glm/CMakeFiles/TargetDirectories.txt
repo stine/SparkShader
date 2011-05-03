@@ -1,0 +1,2 @@
+/home/xylzlyx/code/glm/glm/CMakeFiles/glm.dir
+/home/xylzlyx/code/glm/doc/CMakeFiles/glm-doc.dir
