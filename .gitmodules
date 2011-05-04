@@ -1,0 +1,6 @@
+[submodule "glm"]
+	path = glm
+	url = git://github.com/stine/glm.git
+[submodule "GL3"]
+	path = GL3
+	url = git://github.com/stine/GL3.git

@@ -1,24 +1,51 @@
 #ifndef __CUBE_H__
 #define __CUBE_H__
 
+#include <GL/glew.h>
+#include <vector>
+#include <glm/glm.hpp>
+#include "Shader.h"
+
 class Cube {
  public:
   Cube();
+  virtual ~Cube();
   void render(float secondsElapsed);
  private:
 
-  // OpenGL handles for uploaded model data
-  unsigned int _vao;
-  unsigned int _vertsVbo;
-  unsigned int _colorsVbo;
+  void checkGLError();
 
-  // OpenGL shader handle
-  int _programHandle;
+  // OpenGL handles for uploaded model data
+  GLuint _transformFeedback;
+  GLuint _srcXfbBuff;
+  GLuint _destXfbBuff;
+  GLuint _fbPosBo[2];
+  GLuint _fbMaxRadBo[2];
+  GLuint _fbAgeBo[2];
+  GLuint _query;
+  GLuint _particleGenVao;
+  GLuint _surfaceVao[2];
+  GLuint _indicesVbo;
+  GLuint _vertsVbo;
+  
+  GLuint _vertQid;
+  GLuint _vertCount;
+
+  // Shaders
+  Shader _genProg;
+  Shader _surfaceProg;
+  
+  // Time
+  float _time;
 
   // model data
-  int    _numIndices;
-  float *_verts3;
-  float *_colors4;
+  std::vector<unsigned> _indices;
+  std::vector<float>    _verts3;
+  std::vector<float>    _colors4;
+
+  // view data
+  glm::mat4 _modelViewMatrix;
+  glm::mat4 _projectionMatrix;
 };
 
 #endif //__CUBE_H__

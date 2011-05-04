@@ -1,1 +1,0 @@
-/usr/bin/c++      CMakeFiles/glm-doc.dir/src/dummy.cpp.o  -o glm-doc -rdynamic 

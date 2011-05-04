@@ -1,120 +1,132 @@
-// Note: this file is my shameful hack. :(
-
+#include <GL/glew.h>
 #include "Shader.h"
-#include <GL/gl.h>
-#include <iostream>
-#include <stdio.h>
+#include <cstdio>
+#include <vector>
+#include "glsw.h"
 
-#define GL_TESS_CONTROL_SHADER    0x8E88
-#define GL_TESS_EVALUATION_SHADER 0x8E87
+using std::vector;
 
-char * shader::fileRead (const char *fn) {
-  FILE *fp;
-  char *content = NULL;
+Shader::Shader()
+  : _program(0)
+{}
+
+
+Shader::~Shader()
+{
+  del();
+}
+
+
+void Shader::compile(const char *vs, const char *gs, const char *fs)
+{
+  vector<GLuint> objects;
+
+  // Clean up any existing shader program.
+  del();
+
+  // Compile shader objects.
+  objects.push_back(shaderObj(GL_VERTEX_SHADER, vs));
+  if (gs) objects.push_back(shaderObj(GL_GEOMETRY_SHADER, gs));    
+  objects.push_back(shaderObj(GL_FRAGMENT_SHADER, fs));
+
+  // Create shader program, attach objects, and flag objects for deletion.
+  _program = glCreateProgram();
+  vector<GLuint>::iterator itr = objects.begin();
+  for ( ; itr != objects.end(); ++itr) {
+    glAttachShader(_program, *itr);
+    glDeleteShader(*itr);
+  }
+}
+
+
+void Shader::link()
+{
+  // Link the provided shader objects into a shader program.
+  glLinkProgram(_program);
+    
+  // Test for failure.  Log an error if so.
+  GLint status;
+  glGetProgramiv (_program, GL_LINK_STATUS, &status);
+  if (status == GL_FALSE) {
+    GLint infoLogLength;
+    glGetProgramiv(_program, GL_INFO_LOG_LENGTH, &infoLogLength);
+        
+    GLchar *strInfoLog = new GLchar[infoLogLength + 1];
+    glGetProgramInfoLog(_program, infoLogLength, NULL, strInfoLog);
+    fprintf(stderr, "Linker failure: %s\n\n", strInfoLog);
+    delete [] strInfoLog;
+  }
+}
+
+
+void Shader::del()
+{
+  // Clean up the shader program.
+  if (glIsProgram(_program))
+    glDeleteProgram(_program);
+  _program = 0;
+}
+
+
+bool Shader::ok() const
+{
+  return glIsProgram(_program);
+}
+
+
+GLuint Shader::prog() const
+{
+  return _program;
+}
+
+
+Shader::operator const GLuint &() const
+{
+  return _program;
+}
+
+
+GLuint Shader::shaderObj(GLenum shaderType, const char *shaderName) const
+{
+  glswInit();
   
-  int count = 0;
-  
-  if (fn != NULL) {
-    fp = fopen(fn,"rt");
+  // Load shader program text.
+  glswSetPath("./shaders/", ".glsl");
+  const char *shaderText = glswGetShader(shaderName);
+  if (!shaderText) {
+    fprintf(stderr, "%s\n", glswGetError());
+    glswShutdown();
+    return 0;
+  }
 
-    if (fp != NULL) {
-      fseek(fp, 0, SEEK_END);
-      count = ftell(fp);
-      rewind(fp);
-      
-      if (count > 0) {
-	content = new char[sizeof(char) * (count+1)];
-	count = fread(content,sizeof(char),count,fp);
-	content[count] = '\0';
-      }
-
-      fclose(fp);
+  // Compile the provided shader text into a shader object.
+  GLuint shader = glCreateShader(shaderType);
+  glShaderSource(shader, 1, &shaderText, NULL);
+  glCompileShader(shader);
+    
+  // Test for failure.  Log an error if so.
+  GLint status;
+  glGetShaderiv(shader, GL_COMPILE_STATUS, &status);
+  if (status == GL_FALSE) {
+    GLint infoLogLength;
+    glGetShaderiv(shader, GL_INFO_LOG_LENGTH, &infoLogLength);
+    
+    GLchar *strInfoLog = new GLchar[infoLogLength + 1];
+    glGetShaderInfoLog(shader, infoLogLength, NULL, strInfoLog);
+    
+    const char *strShaderType = NULL;
+    switch(shaderType) {
+    case GL_VERTEX_SHADER:   strShaderType = "vertex";   break;
+    case GL_GEOMETRY_SHADER: strShaderType = "geometry"; break;
+    case GL_FRAGMENT_SHADER: strShaderType = "fragment"; break;
     }
-  }
-
-  return content;
-}
-
-bool shader::compileShader(const char *shaderText, GLenum shaderType, GLuint &handle)
-{
-  GLint compileSuccess;
-  GLchar compilerSpew[256];
-
-  char shaderTypeText[16];
-  switch (shaderType) {
-  case GL_VERTEX_SHADER:
-    snprintf(shaderTypeText, 16, "Vertex");
-    break;
-  case GL_TESS_CONTROL_SHADER:
-    snprintf(shaderTypeText, 16, "TessControl");
-    break;
-  case GL_TESS_EVALUATION_SHADER:
-    snprintf(shaderTypeText, 16, "TessEvaluation");
-    break;
-  case GL_GEOMETRY_SHADER_ARB:
-    snprintf(shaderTypeText, 16, "Geometry");
-    break;
-  case GL_FRAGMENT_SHADER:
-    snprintf(shaderTypeText, 16, "Fragment");
-    break;
-  default:
-    fprintf(stderr, "ERROR: Invalid shader type.\n");
-    return false;
-    break;
+        
+    fprintf(stderr, "Compilation error in %s shader named \"%s\":\n%s\n",
+	    strShaderType, shaderName, strInfoLog);
+    delete [] strInfoLog;
   }
   
-  handle = glCreateShader(shaderType);
-
-  glShaderSource(handle, 1, &shaderText, 0);
-  glCompileShader(handle);
-  glGetShaderiv(handle, GL_COMPILE_STATUS, &compileSuccess);
-  glGetShaderInfoLog(handle, sizeof(compilerSpew), 0, compilerSpew);
-  if (!compileSuccess) {
-    fprintf(stderr, "%s Shader Compiling:\n%s\n", shaderTypeText, compilerSpew);
-    return false;
-  }
-
-  return true;
-}
-
-
-// NOTE: Currently only supports vertex and fragment shaders.
-GLint shader::loadEffect(const char *vS,
-			 const char *tcS,
-			 const char *teS,
-			 const char *gS,
-			 const char *fS)
-{
-  GLuint programHandle = 0;
-  GLint linkSuccess;
-  GLchar compilerSpew[256];
-  
-  // Load source for each shader
-  const char* vsSource = fileRead(vS);
-  // const char* tcsSource = fileRead(tcS);
-  // const char* tesSource = fileRead(teS);
-  // const char* gsSource = fileRead(gS);
-  const char* fsSource = fileRead(fS);
-  
-  // Compile shader obejcts for each shader
-  GLuint vsHandle;
-  GLuint fsHandle;
-  compileShader(vsSource, GL_VERTEX_SHADER, vsHandle);
-  compileShader(fsSource, GL_FRAGMENT_SHADER, fsHandle);
-
-  // Link the shaders
-  programHandle = glCreateProgram();
-  glAttachShader(programHandle, vsHandle);
-  // glAttachShader(programHandle, tcsHandle);
-  // glAttachShader(programHandle, tesHandle);
-  // glAttachShader(programHandle, gsHandle);
-  glAttachShader(programHandle, fsHandle);
-  glLinkProgram(programHandle);
-  glGetProgramiv(programHandle, GL_LINK_STATUS, &linkSuccess);
-  glGetProgramInfoLog(programHandle, sizeof(compilerSpew), 0, compilerSpew);
-  if (!linkSuccess) {
-    fprintf(stderr, "ERROR: Shader Linking:\n%s", compilerSpew);
-  }
-  
-  return programHandle;
+  // Return the compiled shader object.
+  glswShutdown();
+  return shader;
 }
