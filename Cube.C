@@ -38,6 +38,7 @@ Cube::Cube()
   glClearDepth(1.0);
   glEnable(GL_DEPTH_TEST);
   glCullFace(GL_BACK);
+  glPointSize(2.0f);
 
   // Generate Cube geometry and store in _indices, _position3.
   static const float position[] =
@@ -166,7 +167,7 @@ void Cube::render(float secondsElapsed)
   GLuint brtIdx = glGetUniformLocation(_genProg, "BirthFrequency");
 
   // Rotate.
-  float degrees = 0.0f;//secondsElapsed * 50.0f;
+  float degrees = secondsElapsed * 50.0f;
   _modelViewMatrix = glm::rotate(_modelViewMatrix, degrees, glm::vec3(0.3f, 1.0f, 0.1f));
   glm::mat4 mvpMatrix = _projectionMatrix * _modelViewMatrix;
 
