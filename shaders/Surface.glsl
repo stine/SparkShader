@@ -69,5 +69,6 @@ out vec4 fragcolor;
 
 void main() {
   // TODO set color based on age.
-  fragcolor = vec4(1.0, 1.0 - gAge, 0.0, 1.0);
+  float life = gAge / MaxAgeSec;
+  fragcolor = vec4(1.0, 1.0 - life, 0.0, 1.0 - life);
 }

@@ -31,6 +31,7 @@ class Cube {
   GLuint _vertCount;
 
   // Shaders
+  Shader _basicProg;
   Shader _genProg;
   Shader _surfaceProg;
   

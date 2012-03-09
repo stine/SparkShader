@@ -37,7 +37,9 @@ Cube::Cube()
   glClearDepth(1.0);
   glEnable(GL_DEPTH_TEST);
   glCullFace(GL_BACK);
-  glPointSize(2.0f);
+  glEnable(GL_BLEND);
+  glBlendEquationSeparate(GL_FUNC_ADD, GL_FUNC_ADD);
+  glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ZERO);
 
   // Generate Cube geometry and store in _indices, _position3.
   static const float position[] =
@@ -66,6 +68,10 @@ Cube::Cube()
     };
   _verts3.assign(position, position + sizeof(position) / sizeof(position[0]));
   _indices.assign(index, index + sizeof(index) / sizeof(index[0]));
+
+  // Load basic shader.
+  _basicProg.compile("Basic.Vertex", NULL, "Basic.Fragment");
+  _basicProg.link();
 
   // Load particle generation shader.
   const GLchar *particleVaryings[] = {"gWorldPos", "gVelocity", "gAge"};
@@ -144,9 +150,9 @@ Cube::Cube()
   glGenQueries(1, &_vertQid);
 
   // Populate the default modelview and projection matrices.
-  _modelViewMatrix  = glm::translate(glm::mat4(1.0), glm::vec3(0.0, 0.0, -10.0));
+  _modelViewMatrix  = glm::translate(glm::mat4(1.0), glm::vec3(0.0, 0.0, -40.0));
   _projectionMatrix = glm::mat4(1.0f) * glm::perspective
-    (25.0f, (float)RENDER_WIDTH /(float)RENDER_HEIGHT, 1.0f, 14.0f);
+    (25.0f, (float)RENDER_WIDTH /(float)RENDER_HEIGHT, 1.0f, 60.0f);
 
   return;
 }
@@ -168,19 +174,30 @@ Cube::~Cube()
 
 void Cube::render(float secondsElapsed)
 {
-  GLuint mvpIdx = glGetUniformLocation(_genProg, "MVPMatrix");
+
+  // Setup projection * modelview matrix.
+  float degrees = secondsElapsed * 50.0f;
+  _modelViewMatrix = glm::rotate(_modelViewMatrix, degrees, glm::vec3(0.3f, 1.0f, 0.1f));
+  glm::mat4 translatedMatrix = glm::translate(_modelViewMatrix, glm::vec3(3.0f, 1.0f, 0.0f));
+  glm::mat4 mvpMatrix = _projectionMatrix * translatedMatrix;
+
+  // Draw the wireframe outline of the cube.
+  GLuint mvpIdx = glGetUniformLocation(_basicProg, "MVPMatrix");
+  GLuint colIdx = glGetUniformLocation(_basicProg, "Color");
+  glUseProgram(_basicProg);
+  glUniformMatrix4fv(mvpIdx, 1, false, &mvpMatrix[0][0]);
+  glUniform4f(colIdx, 1.0, 1.0, 1.0, 1.0);
+  glBindVertexArray(_particleGenVao);
+  glDrawElements(GL_TRIANGLES, _indices.size(), GL_UNSIGNED_INT, NULL);
+  glBindVertexArray(0);
+
+  // Generate new points for this frame.
+  GLuint mv2Idx = glGetUniformLocation(_genProg, "MVPMatrix");
   GLuint timIdx = glGetUniformLocation(_genProg, "Time");
   GLuint elaIdx = glGetUniformLocation(_genProg, "ElapsedSec");
   GLuint brtIdx = glGetUniformLocation(_genProg, "BirthFrequency");
-
-  // Rotate.
-  float degrees = secondsElapsed * 50.0f;
-  _modelViewMatrix = glm::rotate(_modelViewMatrix, degrees, glm::vec3(0.3f, 1.0f, 0.1f));
-  glm::mat4 mvpMatrix = _projectionMatrix * _modelViewMatrix;
-
-  // Generate new points for this frame.
   glUseProgram(_genProg);
-  glUniformMatrix4fv(mvpIdx, 1, false, &mvpMatrix[0][0]);
+  glUniformMatrix4fv(mv2Idx, 1, false, &mvpMatrix[0][0]);
   glUniform1f(timIdx, _time);
   glUniform1f(elaIdx, secondsElapsed);
   glUniform1f(brtIdx, 1000.0f);
@@ -200,14 +217,14 @@ void Cube::render(float secondsElapsed)
 		      1*_vertCount*sizeof(GLfloat),
 		      1*_vertCount*sizeof(GLfloat) + 80*1*sizeof(GLfloat));
     glBeginTransformFeedback(GL_POINTS);
-    //    glEnable(GL_RASTERIZER_DISCARD);
+    glEnable(GL_RASTERIZER_DISCARD);
 
     glBindVertexArray(_particleGenVao);
     glDrawElements(GL_TRIANGLES, _indices.size(), GL_UNSIGNED_INT, NULL);
     glBindVertexArray(0);
 
     glEndTransformFeedback();
-    //    glDisable(GL_RASTERIZER_DISCARD);
+    glDisable(GL_RASTERIZER_DISCARD);
   glEndQuery(GL_TRANSFORM_FEEDBACK_PRIMITIVES_WRITTEN);
   GLint pointsGenerated = -1;
   glGetQueryObjectiv(_vertQid, GL_QUERY_RESULT, &pointsGenerated);
@@ -232,9 +249,11 @@ void Cube::render(float secondsElapsed)
     glBindBufferBase(GL_TRANSFORM_FEEDBACK_BUFFER, 2, _ageBo[_destXfbBuff]);
     glBeginTransformFeedback(GL_POINTS);
   
+    glDisable(GL_DEPTH_TEST);
     glBindVertexArray(_surfaceVao[_srcXfbBuff]);
     glDrawArrays(GL_POINTS, 0, _vertCount);
     glBindVertexArray(0);
+    glEnable(GL_DEPTH_TEST);
 
     glEndTransformFeedback();
   glEndQuery(GL_TRANSFORM_FEEDBACK_PRIMITIVES_WRITTEN);
