@@ -14,6 +14,11 @@
 #include "Cube.h"
 #include "Stopwatch.h"
 
+void GLFWCALL windowResize(int width, int height)
+{
+  glViewport(0, 0, width, height);
+}
+
 int main(int argc, char **argv) {
 
   if (!glfwInit())
@@ -24,6 +29,8 @@ int main(int argc, char **argv) {
     glfwTerminate();
     exit(EXIT_FAILURE);
   }
+
+  glfwSetWindowSizeCallback(windowResize);
 
   // Initialize glew.
   glewInit();
