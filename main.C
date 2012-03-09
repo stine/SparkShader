@@ -30,6 +30,7 @@ int main(int argc, char **argv) {
     exit(EXIT_FAILURE);
   }
 
+  glfwSwapInterval(1);
   glfwSetWindowSizeCallback(windowResize);
 
   // Initialize glew.
@@ -50,12 +51,15 @@ int main(int argc, char **argv) {
     
     // Sleep to achieve target framerate.
     secondsElapsed = stopwatch.secondsElapsed();
-    float sleepTime = targetSPF - secondsElapsed;
-    sleep(sleepTime > 0 ? sleepTime : 0);
+    float sleepTimeSec = targetSPF - secondsElapsed;
+    usleep(sleepTimeSec > 0 ? sleepTimeSec * 1000000.0f : 0);
 
     // Check if ESC key was pressed or window was closed.
     running = !glfwGetKey(GLFW_KEY_ESC) &&
       glfwGetWindowParam(GLFW_OPENED);
+
+    // Get the time spent this frame.
+    secondsElapsed = stopwatch.secondsElapsed();
   }
 
   glfwTerminate();

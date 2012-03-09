@@ -19,10 +19,9 @@ class Cube {
   GLuint _transformFeedback;
   GLuint _srcXfbBuff;
   GLuint _destXfbBuff;
-  GLuint _fbPosBo[2];
-  GLuint _fbMaxRadBo[2];
-  GLuint _fbAgeBo[2];
-  GLuint _query;
+  GLuint _worldPosBo[2];
+  GLuint _velocityBo[2];
+  GLuint _ageBo[2];
   GLuint _particleGenVao;
   GLuint _surfaceVao[2];
   GLuint _indicesVbo;

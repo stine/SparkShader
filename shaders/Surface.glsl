@@ -2,22 +2,18 @@
 
 #version 400
 
-// Incoming Attributes
-in vec3  position;
-in float maxRadius;
-in float ageSeconds;
+in vec4 worldPos;
+in vec3 velocity;
+in float age;
 
-// Outgoing Varyings
-out vec3  positionV;
-out float maxRadiusV;
-out float ageSecondsV;
+out vec4 vWorldPos;
+out vec3 vVelocity;
+out float vAge;
 
 void main() {
-
-  // Pass along necessary values to the GS.
-  positionV   = position;
-  maxRadiusV  = maxRadius;
-  ageSecondsV = ageSeconds;
+  vWorldPos = worldPos;
+  vVelocity = velocity;
+  vAge = age;
 }
 
 
@@ -28,41 +24,32 @@ void main() {
 layout(points, invocations = 1) in;
 layout(points, max_vertices = 1) out;
 
-// Uniforms
-uniform mat4 modelViewProjectionMatrix;
-uniform float radiusChangeSpeed;
-uniform float secondsElapsed;
+uniform float ElapsedSec;
+uniform vec3  WorldAccel;
+uniform float MaxAgeSec = 1.0;
 
-// Incoming Varyings
-in vec3  positionV[];
-in float maxRadiusV[];
-in float ageSecondsV[];
+in vec4 vWorldPos[];
+in vec3 vVelocity[];
+in float vAge[];
 
-// Outgoing Varyings
-out vec3  ptPosition;
-out float ptMaxRadius;
-out float ptAgeSeconds;
+out vec4 gWorldPos;
+out vec3 gVelocity;
+out float gAge;
 
 void main() {
 
-  // Set appropriate 'out' values for this vertex.
-  ptPosition   = positionV[0];
-  ptMaxRadius  = maxRadiusV[0];
-  ptAgeSeconds = ageSecondsV[0] + secondsElapsed;
+  // Calculate new position based on ElapsedSec and velocity.
+  gWorldPos = vec4(vVelocity[0], 0.0) * ElapsedSec + vWorldPos[0];
+  gl_Position = gWorldPos;
 
-  // Calculate the radius of the point.  Linear progression
-  // throughout 0 -> maxRadius -> 0.
-  float radius = ageSecondsV[0] * radiusChangeSpeed;
-  if (radius > maxRadiusV[0]) {
-    radius = 2 * maxRadiusV[0] - radius;
-  }
-  gl_PointSize = radius;
+  // Calculate new velocity based on ElapsedSec and WorldAccel.
+  gVelocity = WorldAccel * ElapsedSec + vVelocity[0];
 
-  // Calculate the position of this point.
-  gl_Position = modelViewProjectionMatrix * vec4(positionV[0], 1.0);
+  // Calculate new age.
+  gAge = vAge[0] + ElapsedSec;
 
-  // If radius > 0.0f, the point will be drawn and continues to live.
-  if (radius >= 0.0f) {
+  // Determine if point has died.
+  if (gAge < MaxAgeSec) {
     EmitVertex();
   }
 }
@@ -72,9 +59,15 @@ void main() {
 
 #version 400
 
-// Outgoing (final) Varyings
+uniform float MaxAgeSec = 1.0;
+
+in vec4 gWorldPos;
+in vec3 gVelocity;
+in float gAge;
+
 out vec4 fragcolor;
 
 void main() {
-  fragcolor = vec4(1.0, 1.0, 0.0, 1.0);
+  // TODO set color based on age.
+  fragcolor = vec4(1.0, 1.0 - gAge, 0.0, 1.0);
 }

@@ -21,7 +21,6 @@ Cube::Cube()
   : _transformFeedback(0),
     _srcXfbBuff(0),
     _destXfbBuff(1),
-    _query(0),
     _particleGenVao(0),
     _indicesVbo(0),
     _vertsVbo(0),
@@ -68,17 +67,20 @@ Cube::Cube()
   _verts3.assign(position, position + sizeof(position) / sizeof(position[0]));
   _indices.assign(index, index + sizeof(index) / sizeof(index[0]));
 
-  // Load shaders.
+  // Load particle generation shader.
+  const GLchar *particleVaryings[] = {"gWorldPos", "gVelocity", "gAge"};
   _genProg.compile("Particle.Vertex", "Particle.Geometry", "Particle.Fragment");
+  glTransformFeedbackVaryings(_genProg, 3, particleVaryings, GL_SEPARATE_ATTRIBS);
   _genProg.link();
+
+  // Load particle velocity/decay/rendering shader.
+  const GLchar *surfaceVaryings[] = {"gWorldPos", "gVelocity", "gAge"};
   _surfaceProg.compile("Surface.Vertex", "Surface.Geometry", "Surface.Fragment");
+  glTransformFeedbackVaryings(_surfaceProg, 3, surfaceVaryings, GL_SEPARATE_ATTRIBS);
   _surfaceProg.link();
 
   // Create transform feedback objects.
   glGenTransformFeedbacks(1, &_transformFeedback);
-
-  // Create query object.
-  glGenQueries(1, &_query);
 
   // Bind a vertex array object.
   // A VAO holds the state of all VBOs associated with it.
@@ -108,35 +110,38 @@ Cube::Cube()
   // the VAO and VBO.
   glBindVertexArray(0);
 
-  // Do the same for our "surface" vao and buffers.
-  /*
+  // Create vertex array and buffers for particle aging shader.
   glGenVertexArrays(2, _surfaceVao);
-  glGenBuffers(2, _fbPosBo);
-  glGenBuffers(2, _fbMaxRadBo);
-  glGenBuffers(2, _fbAgeBo);
+  glGenBuffers(2, _worldPosBo);
+  glGenBuffers(2, _velocityBo);
+  glGenBuffers(2, _ageBo);
   for (int i = 0; i < 2; ++i) {
+    GLuint posIdx = glGetAttribLocation(_surfaceProg, "worldPos");
+    GLuint velIdx = glGetAttribLocation(_surfaceProg, "velocity");
+    GLuint ageIdx = glGetAttribLocation(_surfaceProg, "age");
+
     glBindVertexArray(_surfaceVao[i]);
-    glBindBuffer(GL_ARRAY_BUFFER, _fbPosBo[i]);
-    glBufferData(GL_ARRAY_BUFFER, 100000*3*sizeof(GLfloat), 0, GL_STREAM_COPY);
-    glEnableVertexAttribArray(glGetAttribLocation(_surfaceProg, "position"));
-    glVertexAttribPointer(glGetAttribLocation(_surfaceProg, "position"),
-			  3, GL_FLOAT, GL_FALSE, 0, 0);
-    glBindBuffer(GL_ARRAY_BUFFER, _fbMaxRadBo[i]);
-    glBufferData(GL_ARRAY_BUFFER, 100000*1*sizeof(GLfloat), 0, GL_STREAM_COPY);
-    glEnableVertexAttribArray(glGetAttribLocation(_surfaceProg, "maxRadius"));
-    glVertexAttribPointer(glGetAttribLocation(_surfaceProg, "maxRadius"),
-			  1, GL_FLOAT, GL_FALSE, 0, 0);
-    glBindBuffer(GL_ARRAY_BUFFER, _fbAgeBo[i]);
-    glBufferData(GL_ARRAY_BUFFER, 100000*1*sizeof(GLfloat), 0, GL_STREAM_COPY);
-    glEnableVertexAttribArray(glGetAttribLocation(_surfaceProg, "ageSeconds"));
-    glVertexAttribPointer(glGetAttribLocation(_surfaceProg, "ageSeconds"),
-			  1, GL_FLOAT, GL_FALSE, 0, 0);
+
+    glEnableVertexAttribArray(posIdx);
+    glBindBuffer(GL_ARRAY_BUFFER, _worldPosBo[i]);
+    glBufferData(GL_ARRAY_BUFFER, 1000000 * 4 * sizeof(GLfloat), 0, GL_STREAM_COPY);
+    glVertexAttribPointer(posIdx, 4, GL_FLOAT, GL_FALSE, 0, 0);
+
+    glEnableVertexAttribArray(velIdx);
+    glBindBuffer(GL_ARRAY_BUFFER, _velocityBo[i]);
+    glBufferData(GL_ARRAY_BUFFER, 1000000 * 3 * sizeof(GLfloat), 0, GL_STREAM_COPY);
+    glVertexAttribPointer(velIdx, 3, GL_FLOAT, GL_FALSE, 0, 0);
+
+    glEnableVertexAttribArray(ageIdx);
+    glBindBuffer(GL_ARRAY_BUFFER, _ageBo[i]);
+    glBufferData(GL_ARRAY_BUFFER, 1000000 * 1 * sizeof(GLfloat), 0, GL_STREAM_COPY);
+    glVertexAttribPointer(ageIdx, 1, GL_FLOAT, GL_FALSE, 0, 0);
+
     glBindVertexArray(0);
   }
-  */
 
   // Generate query object IDs.
-  //  glGenQueries(1, &_vertQid);
+  glGenQueries(1, &_vertQid);
 
   // Populate the default modelview and projection matrices.
   _modelViewMatrix  = glm::translate(glm::mat4(1.0), glm::vec3(0.0, 0.0, -10.0));
@@ -152,8 +157,11 @@ Cube::~Cube()
   glDeleteBuffers(1, &_vertsVbo);
   glDeleteVertexArrays(1, &_particleGenVao);
 
+  // TODO delete transform feedback buffers and vao.
+  // 
+
   // Delete transform feedback object.
-  //  glDeleteTransformFeedbacks(1, &_transformFeedback);
+  glDeleteTransformFeedbacks(1, &_transformFeedback);
 
   return;
 }
@@ -163,7 +171,6 @@ void Cube::render(float secondsElapsed)
   GLuint mvpIdx = glGetUniformLocation(_genProg, "MVPMatrix");
   GLuint timIdx = glGetUniformLocation(_genProg, "Time");
   GLuint elaIdx = glGetUniformLocation(_genProg, "ElapsedSec");
-  GLuint mxaIdx = glGetUniformLocation(_genProg, "MaxAgeSec");
   GLuint brtIdx = glGetUniformLocation(_genProg, "BirthFrequency");
 
   // Rotate.
@@ -176,59 +183,53 @@ void Cube::render(float secondsElapsed)
   glUniformMatrix4fv(mvpIdx, 1, false, &mvpMatrix[0][0]);
   glUniform1f(timIdx, _time);
   glUniform1f(elaIdx, secondsElapsed);
-  glUniform1f(mxaIdx, 1.0f);
-  glUniform1f(brtIdx, 10000.0f);
+  glUniform1f(brtIdx, 1000.0f);
   
-  /*  glUniform1i(glGetUniformLocation(_genProg, "seed"), rand() % 1000000);
-  glUniform1f(glGetUniformLocation(_genProg, "secondsElapsed"), secondsElapsed);
-  glUniform1f(glGetUniformLocation(_genProg, "frequencyPerSqUnit"), 50.0f);
-  glUniform1f(glGetUniformLocation(_genProg, "minAltitude"), 0.0f);
-  glUniform1f(glGetUniformLocation(_genProg, "maxAltitude"), 0.2f);
-  glUniform1f(glGetUniformLocation(_genProg, "minRadius"), 2.0f);
-  glUniform1f(glGetUniformLocation(_genProg, "maxRadius"), 10.0f);
-  */
-  /*
   glBeginQuery(GL_TRANSFORM_FEEDBACK_PRIMITIVES_WRITTEN, _vertQid);
     glBindTransformFeedback(GL_TRANSFORM_FEEDBACK, _transformFeedback);
-    glBindBufferRange(GL_TRANSFORM_FEEDBACK_BUFFER, 0, _fbPosBo[_srcXfbBuff],
-		      3*_vertCount*sizeof(GLfloat), 3*_vertCount*sizeof(GLfloat) + 80*3*sizeof(GLfloat));
-    glBindBufferRange(GL_TRANSFORM_FEEDBACK_BUFFER, 1, _fbMaxRadBo[_srcXfbBuff],
-		      1*_vertCount*sizeof(GLfloat), 1*_vertCount*sizeof(GLfloat) + 80*1*sizeof(GLfloat));
-    glBindBufferRange(GL_TRANSFORM_FEEDBACK_BUFFER, 2, _fbAgeBo[_srcXfbBuff],
-		      1*_vertCount*sizeof(GLfloat), 1*_vertCount*sizeof(GLfloat) + 80*1*sizeof(GLfloat));
+    glBindBufferRange(GL_TRANSFORM_FEEDBACK_BUFFER, 0,
+		      _worldPosBo[_srcXfbBuff],
+		      4*_vertCount*sizeof(GLfloat),
+		      4*_vertCount*sizeof(GLfloat) + 80*4*sizeof(GLfloat));
+    glBindBufferRange(GL_TRANSFORM_FEEDBACK_BUFFER, 1,
+		      _velocityBo[_srcXfbBuff],
+		      3*_vertCount*sizeof(GLfloat),
+		      3*_vertCount*sizeof(GLfloat) + 80*3*sizeof(GLfloat));
+    glBindBufferRange(GL_TRANSFORM_FEEDBACK_BUFFER, 2,
+		      _ageBo[_srcXfbBuff],
+		      1*_vertCount*sizeof(GLfloat),
+		      1*_vertCount*sizeof(GLfloat) + 80*1*sizeof(GLfloat));
     glBeginTransformFeedback(GL_POINTS);
-    glEnable(GL_RASTERIZER_DISCARD);
-  */
+    //    glEnable(GL_RASTERIZER_DISCARD);
+
     glBindVertexArray(_particleGenVao);
     glDrawElements(GL_TRIANGLES, _indices.size(), GL_UNSIGNED_INT, NULL);
     glBindVertexArray(0);
-/*
+
     glEndTransformFeedback();
-    glDisable(GL_RASTERIZER_DISCARD);
+    //    glDisable(GL_RASTERIZER_DISCARD);
   glEndQuery(GL_TRANSFORM_FEEDBACK_PRIMITIVES_WRITTEN);
   GLint pointsGenerated = -1;
   glGetQueryObjectiv(_vertQid, GL_QUERY_RESULT, &pointsGenerated);
   _vertCount += pointsGenerated; 
-  //  cout << "Vert Count: " << pointsGenerated << endl;
-*/
-  // Draw the surface with associated poplights.
-    /*
-  glUseProgram(_surfaceProg);
-  glUniformMatrix4fv(mvpIdx, 1, false, &mvpMatrix[0][0]);
-  glUniform1f(timIdx, _time);
-  glUniform1f(elaIdx, secondsElapsed);
-  glUniform1f(mxaIdx, 1.0f);
-  glUniform1f(brtIdx, 1000.0f);
-    */
-  //  glUniform1f(glGetUniformLocation(_surfaceProg, "radiusChangeSpeed"), 55.0f);
-  //  glUniform1f(glGetUniformLocation(_surfaceProg, "secondsElapsed"), secondsElapsed);
 
-  /*
+  // Print the number of verts collected.
+  cout << "Vert Count: " << _vertCount << endl;
+
+  // Draw the surface with associated poplights.
+  GLuint el2Idx = glGetUniformLocation(_surfaceProg, "ElapsedSec");
+  GLuint accIdx = glGetUniformLocation(_surfaceProg, "WorldAccel");
+  GLuint mxaIdx = glGetUniformLocation(_surfaceProg, "MaxAgeSec");
+  glUseProgram(_surfaceProg);
+  glUniform1f(el2Idx, secondsElapsed);
+  glUniform3f(accIdx, 0.0, -9.8, 0.0);
+  glUniform1f(mxaIdx, 4.0f);
+
   glBeginQuery(GL_TRANSFORM_FEEDBACK_PRIMITIVES_WRITTEN, _vertQid);
     glBindTransformFeedback(GL_TRANSFORM_FEEDBACK, _transformFeedback);
-    glBindBufferBase(GL_TRANSFORM_FEEDBACK_BUFFER, 0, _fbPosBo[_destXfbBuff]);
-    glBindBufferBase(GL_TRANSFORM_FEEDBACK_BUFFER, 1, _fbMaxRadBo[_destXfbBuff]);
-    glBindBufferBase(GL_TRANSFORM_FEEDBACK_BUFFER, 2, _fbAgeBo[_destXfbBuff]);
+    glBindBufferBase(GL_TRANSFORM_FEEDBACK_BUFFER, 0, _worldPosBo[_destXfbBuff]);
+    glBindBufferBase(GL_TRANSFORM_FEEDBACK_BUFFER, 1, _velocityBo[_destXfbBuff]);
+    glBindBufferBase(GL_TRANSFORM_FEEDBACK_BUFFER, 2, _ageBo[_destXfbBuff]);
     glBeginTransformFeedback(GL_POINTS);
   
     glBindVertexArray(_surfaceVao[_srcXfbBuff]);
@@ -246,9 +247,8 @@ void Cube::render(float secondsElapsed)
   // Swap source and destination buffers.
   _srcXfbBuff = 1 - _srcXfbBuff;
   _destXfbBuff = 1 - _destXfbBuff;
-  */
 
-    //checkGLError();
+  checkGLError();
 
   // Accumulate time.
   _time += secondsElapsed;

@@ -16,13 +16,12 @@ void main() {
 #version 400
 
 layout(triangles, invocations = 1) in;
-layout(points, max_vertices = 200) out;
+layout(points, max_vertices = 80) out;
 
 uniform mat4 MVPMatrix;
 uniform float Time;
 uniform float ElapsedSec;
 uniform float BirthFrequency;
-uniform float MaxAgeSec = 1.0;
 
 in vec4 vWorldPos[];
 
